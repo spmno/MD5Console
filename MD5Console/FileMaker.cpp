@@ -1,13 +1,18 @@
 #include "FileMaker.h"
 #include <fstream>
 #include <iostream>
-#include "jsoncpp\json\json.h"
+
 #include "md5.h"
 #define MD5_KEY_MAX_LENGTH							64
+const wstring APP_PACKAGE_FILE_NAME(L"\\AppMd5.json");
+const char UPDATE_METHOD[] = "UpdateMethod";
+const char MD5_CONTENT[] = "MD5Content";
 
 using namespace std;
 
-FileMaker::FileMaker(void)
+FileMaker::FileMaker(void) : 
+	appFileDirName_(L""),
+	updateMethodName_(L"")
 {
 
 }
@@ -18,7 +23,7 @@ FileMaker::~FileMaker(void)
 
 }
 
-void FileMaker::FindFile_(const TCHAR* dirName)  
+void FileMaker::findFile_(const TCHAR* dirName)  
 {  
 	TCHAR targetDir[MAX_PATH] = {0};
 	wcscpy_s(targetDir, dirName);
@@ -52,7 +57,7 @@ void FileMaker::FindFile_(const TCHAR* dirName)
 					}
 					wcscat_s(nextDir, fd.cFileName);
 	                
-					FindFile_(nextDir);  
+					findFile_(nextDir);  
 				}
 
             }  
@@ -74,45 +79,33 @@ void FileMaker::FindFile_(const TCHAR* dirName)
  
 }  
 
-void FileMaker::CreateJsonFile(TCHAR* wfileName)
+void FileMaker::createJsonFile(TCHAR* wfileName)
 {
 	appFileDirName_ = wfileName;
-	int lastSignPos = appFileDirName_.rfind(L'\\');
-	wstring relativeDirPrefix = appFileDirName_.substr(0, lastSignPos+1);
-	FindFile_(appFileDirName_.c_str());
-	Json::Value md5List;
-	for (auto fileItem : fileContainer_)
-	{
-		FILE * fp = NULL;
-		_wfopen_s(&fp, fileItem.c_str(), L"rb");
-
-		if (fp == NULL)
-		{
-			//MessageBox(NULL, L"打开文件失败", NULL, MB_OK|MB_TOPMOST);
-			cout << "cannot open file" << endl;
-			return ;
-		}
-		MD5VAL val=md5File(fp);
-		char md5_result[MD5_KEY_MAX_LENGTH] = {0};
-		
-		size_t relativeFirstPos = fileItem.find(relativeDirPrefix);
-		wstring relativeFileName = fileItem.substr(relativeFirstPos+relativeDirPrefix.size());
-		sprintf_s(md5_result, "%08x%08x%08x%08x",conv_(val.a),conv_(val.b),conv_(val.c),conv_(val.d));
-		char fileName[MAX_PATH] = {0};
-		WideCharToMultiByte(GetACP(), 0, relativeFileName.c_str(), relativeFileName.size()*2, fileName, MAX_PATH, NULL, FALSE);
-		md5List[fileName] = md5_result;
-		fclose(fp);
+	
+	findFile_(appFileDirName_.c_str());
+	Json::Value wholeValue;
+	Json::Value updateMethodValue;
+	Json::Value md5ListValue;
+	//createUpdateMethodSection(updateMethodValue);
+	
+	if (createMd5Section(md5ListValue) == false) {
+		return ;
 	}
 	Json::FastWriter fastWriter;
 	wstring outputFileName(appFileDirName_);
-	outputFileName += L"\\AppMd5.json";
+	outputFileName += APP_PACKAGE_FILE_NAME;
 	char fileName[MAX_PATH] = {0};
 	WideCharToMultiByte(GetACP(), 0, outputFileName.c_str(), outputFileName.size()*2, fileName, MAX_PATH, NULL, FALSE);
 	ofstream outputJson(fileName);
 	if (outputJson.is_open())
 	{
-		string tempString = fastWriter.write(md5List);
-		outputJson << fastWriter.write(md5List);
+		char updateMethod[MAX_PATH] = {0};
+		WideCharToMultiByte(GetACP(), 0, updateMethodName_.c_str(), updateMethodName_.size()*2, updateMethod, MAX_PATH, NULL, FALSE);
+		wholeValue[UPDATE_METHOD] = updateMethod;
+		wholeValue[MD5_CONTENT] = md5ListValue;
+		string tempString = fastWriter.write(wholeValue);
+		outputJson << fastWriter.write(wholeValue);
 		outputJson.close();
 	}
 }
@@ -129,3 +122,32 @@ unsigned int FileMaker::conv_(unsigned int a)
 }
 
 
+bool FileMaker::createMd5Section(Json::Value& md5List)
+{
+	int lastSignPos = appFileDirName_.rfind(L'\\');
+	wstring relativeDirPrefix = appFileDirName_.substr(0, lastSignPos+1);
+	for (auto fileItem : fileContainer_)
+	{
+		FILE * fp = NULL;
+		_wfopen_s(&fp, fileItem.c_str(), L"rb");
+
+		if (fp == NULL)
+		{
+			//MessageBox(NULL, L"打开文件失败", NULL, MB_OK|MB_TOPMOST);
+			cout << "cannot open file" << endl;
+			return false;
+		}
+		MD5VAL val=md5File(fp);
+		char md5_result[MD5_KEY_MAX_LENGTH] = {0};
+		
+		size_t relativeFirstPos = fileItem.find(relativeDirPrefix);
+		wstring relativeFileName = fileItem.substr(relativeFirstPos+relativeDirPrefix.size());
+		sprintf_s(md5_result, "%08x%08x%08x%08x",conv_(val.a),conv_(val.b),conv_(val.c),conv_(val.d));
+		char fileName[MAX_PATH] = {0};
+		WideCharToMultiByte(GetACP(), 0, relativeFileName.c_str(), relativeFileName.size()*2, fileName, MAX_PATH, NULL, FALSE);
+		md5List[fileName] = md5_result;
+		fclose(fp);
+	}
+
+	return true;
+}
